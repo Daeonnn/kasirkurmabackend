@@ -8,9 +8,6 @@ use Illuminate\Support\Facades\Validator;
 
 class SatuanController extends Controller
 {
-    /**
-     * Tampilkan semua satuan.
-     */
     public function index()
     {
         $satuan = Satuan::all();
@@ -22,9 +19,6 @@ class SatuanController extends Controller
         ]);
     }
 
-    /**
-     * Simpan satuan baru.
-     */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -58,12 +52,9 @@ class SatuanController extends Controller
         }
     }
 
-    /**
-     * Tampilkan satuan berdasarkan ID.
-     */
     public function show($id)
     {
-        $satuan = Satuan::find($id);
+        $satuan = Satuan::withTrashed()->find($id);
 
         if (!$satuan) {
             return response()->json([
@@ -79,12 +70,9 @@ class SatuanController extends Controller
         ]);
     }
 
-    /**
-     * Update satuan berdasarkan ID.
-     */
     public function update(Request $request, $id)
     {
-        $satuan = Satuan::find($id);
+        $satuan = Satuan::withTrashed()->find($id);
 
         if (!$satuan) {
             return response()->json([
@@ -116,9 +104,6 @@ class SatuanController extends Controller
         ]);
     }
 
-    /**
-     * Hapus satuan berdasarkan ID.
-     */
     public function destroy($id)
     {
         $satuan = Satuan::find($id);
@@ -135,6 +120,37 @@ class SatuanController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Satuan berhasil dihapus'
+        ]);
+    }
+
+    public function trashed()
+    {
+        $trashed = Satuan::onlyTrashed()->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Data satuan yang dihapus berhasil diambil',
+            'data' => $trashed
+        ]);
+    }
+
+    public function restore($id)
+    {
+        $satuan = Satuan::onlyTrashed()->find($id);
+
+        if (!$satuan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Satuan tidak ditemukan di data terhapus'
+            ], 404);
+        }
+
+        $satuan->restore();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Satuan berhasil dikembalikan',
+            'data' => $satuan
         ]);
     }
 }

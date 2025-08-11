@@ -322,10 +322,6 @@ class SaleController extends Controller
             $user = Auth::user();
             $query = Sale::with(['details.product', 'user']);
 
-            // ✅ Jika kasir, bisa lihat semua transaksi (termasuk dari kasir lain)
-            // ✅ Jika admin, lihat semua
-            // Semua bisa saling melihat untuk transparansi
-
             $sales = $query->orderBy('id', 'desc')->get();
 
             // ✅ TAMBAHKAN INFO DISKON KE RESPONSE
@@ -374,9 +370,6 @@ class SaleController extends Controller
         }
     }
 
-    /**
-     * ✅ GET SINGLE SALE (dengan data diskon)
-     */
     public function show($id)
     {
         try {

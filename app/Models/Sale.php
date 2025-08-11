@@ -28,71 +28,46 @@ class Sale extends Model
         'cash_received' => 'decimal:2',
         'change_amount' => 'decimal:2',
         'date' => 'date',
-        // ✅ DISCOUNT CASTS - BARU
         'subtotal_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'discount_value' => 'decimal:2',
     ];
 
-    /**
-     * ✅ Relasi ke SaleDetail
-     */
     public function details()
     {
         return $this->hasMany(SaleDetail::class);
     }
 
-    /**
-     * ✅ Relasi ke User (Kasir yang melakukan transaksi)
-     */
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * ✅ Scope untuk filter berdasarkan tanggal
-     */
     public function scopeByDateRange($query, $startDate, $endDate)
     {
         return $query->whereBetween('date', [$startDate, $endDate]);
     }
 
-    /**
-     * ✅ Scope untuk filter berdasarkan kasir
-     */
     public function scopeByUser($query, $userId)
     {
         return $query->where('user_id', $userId);
     }
 
-    /**
-     * ✅ Scope untuk filter berdasarkan metode pembayaran
-     */
     public function scopeByPaymentMethod($query, $paymentMethod)
     {
         return $query->where('payment_method', $paymentMethod);
     }
 
-    /**
-     * ✅ SCOPE BARU: Filter transaksi yang ada diskonnya
-     */
     public function scopeWithDiscount($query)
     {
         return $query->whereNotNull('discount_amount')->where('discount_amount', '>', 0);
     }
 
-    /**
-     * ✅ SCOPE BARU: Filter berdasarkan tipe diskon
-     */
     public function scopeByDiscountType($query, $discountType)
     {
         return $query->where('discount_type', $discountType);
     }
 
-    /**
-     * ✅ SCOPE BARU: Filter transaksi tanpa diskon
-     */
     public function scopeWithoutDiscount($query)
     {
         return $query->where(function($q) {
@@ -100,33 +75,21 @@ class Sale extends Model
         });
     }
 
-    /**
-     * ✅ Accessor untuk format transaction code
-     */
     public function getFormattedTransactionCodeAttribute()
     {
         return $this->transaction_code;
     }
 
-    /**
-     * ✅ Accessor untuk total items
-     */
     public function getTotalItemsAttribute()
     {
         return $this->details->sum('quantity');
     }
 
-    /**
-     * ✅ Accessor untuk format tanggal Indonesia
-     */
     public function getFormattedDateAttribute()
     {
         return $this->date ? $this->date->format('d/m/Y') : null;
     }
 
-    /**
-     * ✅ Accessor untuk status pembayaran
-     */
     public function getPaymentStatusAttribute()
     {
         if ($this->payment_method === 'qris') {
@@ -137,20 +100,14 @@ class Sale extends Model
             return 'TUNAI';
         }
 
-        return 'TUNAI'; // default
+        return 'TUNAI';
     }
 
-    /**
-     * ✅ ACCESSOR BARU: Cek apakah transaksi memiliki diskon
-     */
     public function getHasDiscountAttribute()
     {
         return $this->discount_amount && $this->discount_amount > 0;
     }
 
-    /**
-     * ✅ ACCESSOR BARU: Format display diskon
-     */
     public function getFormattedDiscountAttribute()
     {
         if (!$this->has_discount) {
@@ -172,17 +129,11 @@ class Sale extends Model
         return $formatted;
     }
 
-    /**
-     * ✅ ACCESSOR BARU: Format subtotal
-     */
     public function getFormattedSubtotalAttribute()
     {
         return $this->subtotal_amount ? 'Rp ' . number_format($this->subtotal_amount, 0, ',', '.') : null;
     }
 
-    /**
-     * ✅ ACCESSOR BARU: Persentase diskon dari subtotal
-     */
     public function getDiscountPercentageAttribute()
     {
         if (!$this->has_discount || !$this->subtotal_amount || $this->subtotal_amount <= 0) {
@@ -192,20 +143,13 @@ class Sale extends Model
         return round(($this->discount_amount / $this->subtotal_amount) * 100, 2);
     }
 
-    /**
-     * ✅ ACCESSOR BARU: Savings amount (berapa yang dihemat customer)
-     */
     public function getSavingsAmountAttribute()
     {
         return $this->discount_amount ?? 0;
     }
 
-    /**
-     * ✅ Mutator untuk memastikan transaction_code format yang benar
-     */
     public function setTransactionCodeAttribute($value)
     {
-        // Pastikan format TR diikuti angka
         if (!preg_match('/^TR\d+$/', $value)) {
             throw new \InvalidArgumentException('Transaction code harus dalam format TR diikuti angka');
         }
@@ -213,9 +157,6 @@ class Sale extends Model
         $this->attributes['transaction_code'] = $value;
     }
 
-    /**
-     * ✅ MUTATOR BARU: Validasi discount_amount
-     */
     public function setDiscountAmountAttribute($value)
     {
         if ($value !== null && $value < 0) {
@@ -224,9 +165,6 @@ class Sale extends Model
         $this->attributes['discount_amount'] = $value;
     }
 
-    /**
-     * ✅ MUTATOR BARU: Validasi discount_type
-     */
     public function setDiscountTypeAttribute($value)
     {
         if ($value && !in_array($value, ['percentage', 'fixed'])) {
@@ -235,9 +173,6 @@ class Sale extends Model
         $this->attributes['discount_type'] = $value;
     }
 
-    /**
-     * ✅ MUTATOR BARU: Validasi discount_value
-     */
     public function setDiscountValueAttribute($value)
     {
         if ($value !== null && $value < 0) {
@@ -246,9 +181,6 @@ class Sale extends Model
         $this->attributes['discount_value'] = $value;
     }
 
-    /**
-     * ✅ METHOD BARU: Kalkulasi total dengan diskon
-     */
     public function calculateTotalWithDiscount($subtotal, $discountType, $discountValue)
     {
         $discountAmount = 0;
@@ -272,9 +204,6 @@ class Sale extends Model
         ];
     }
 
-    /**
-     * ✅ METHOD BARU: Validasi data diskon
-     */
     public function validateDiscount($discountType, $discountValue, $subtotal)
     {
         if (!$discountType || !$discountValue) {
@@ -300,9 +229,6 @@ class Sale extends Model
         return ['valid' => true, 'message' => 'Discount valid'];
     }
 
-    /**
-     * ✅ Method untuk mendapatkan transaction code berikutnya
-     */
     public static function getNextTransactionCode()
     {
         $lastSale = static::where('transaction_code', 'LIKE', 'TR%')
@@ -321,17 +247,11 @@ class Sale extends Model
         return 'TR001';
     }
 
-    /**
-     * ✅ Method untuk validasi transaction code unik
-     */
     public static function isTransactionCodeExists($transactionCode)
     {
         return static::where('transaction_code', $transactionCode)->exists();
     }
 
-    /**
-     * ✅ METHOD BARU: Statistik diskon
-     */
     public static function getDiscountStatistics($startDate = null, $endDate = null)
     {
         $query = static::query();
@@ -357,13 +277,9 @@ class Sale extends Model
         ];
     }
 
-    /**
-     * ✅ METHOD BARU: Laporan diskon detail
-     */
     public static function getDiscountReport($startDate = null, $endDate = null)
     {
-        $query = static::withDiscount()
-            ->with(['details.product', 'user']);
+        $query = static::withDiscount()->with(['details.product', 'user']);
 
         if ($startDate && $endDate) {
             $query->whereBetween('date', [$startDate, $endDate]);
@@ -386,9 +302,6 @@ class Sale extends Model
         ];
     }
 
-    /**
-     * ✅ Method untuk mendapatkan laporan harian
-     */
     public static function getDailyReport($date = null)
     {
         $date = $date ?: now()->format('Y-m-d');
@@ -398,9 +311,6 @@ class Sale extends Model
             ->get();
     }
 
-    /**
-     * ✅ Method untuk mendapatkan laporan bulanan
-     */
     public static function getMonthlyReport($year = null, $month = null)
     {
         $year = $year ?: now()->year;
@@ -412,20 +322,15 @@ class Sale extends Model
             ->get();
     }
 
-    /**
-     * ✅ Boot method untuk auto-generate transaction code dan validasi diskon
-     */
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($sale) {
-            // Jika transaction_code kosong, generate otomatis
             if (empty($sale->transaction_code)) {
                 $sale->transaction_code = static::getNextTransactionCode();
             }
 
-            // ✅ VALIDASI DISKON SAAT CREATING
             if ($sale->discount_amount && $sale->discount_amount > 0) {
                 if (!$sale->discount_type) {
                     throw new \InvalidArgumentException('Discount type harus diisi jika ada discount amount');
@@ -439,7 +344,6 @@ class Sale extends Model
                     throw new \InvalidArgumentException('Discount amount tidak boleh lebih besar dari subtotal');
                 }
 
-                // Validasi konsistensi kalkulasi diskon
                 $expectedDiscount = 0;
                 if ($sale->discount_type === 'percentage') {
                     $expectedDiscount = ($sale->subtotal_amount * $sale->discount_value) / 100;
@@ -454,7 +358,6 @@ class Sale extends Model
         });
 
         static::updating(function ($sale) {
-            // ✅ VALIDASI DISKON SAAT UPDATING
             if ($sale->discount_amount && $sale->discount_amount > 0) {
                 if (!$sale->discount_type) {
                     throw new \InvalidArgumentException('Discount type harus diisi jika ada discount amount');

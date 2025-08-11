@@ -2,44 +2,29 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'name',
         'email',
         'username',
         'password',
-        'role_id', // Tambahkan ini untuk foreign key role
+        'role_id',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -48,17 +33,11 @@ class User extends Authenticatable
         ];
     }
 
-    /**
-     * Relasi ke Role
-     */
     public function role()
     {
         return $this->belongsTo(Role::class);
     }
 
-    /**
-     * Relasi ke Sales (sebagai kasir)
-     */
     public function sales()
     {
         return $this->hasMany(Sale::class);
@@ -69,9 +48,6 @@ class User extends Authenticatable
         return $this->role && strtolower($this->role->name) === 'admin';
     }
 
-    /**
-     * Check if user is kasir
-     */
     public function isKasir()
     {
         return $this->role && strtolower($this->role->name) === 'kasir';
