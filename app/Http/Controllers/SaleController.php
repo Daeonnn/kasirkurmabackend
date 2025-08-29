@@ -14,36 +14,49 @@ use Illuminate\Support\Facades\Log;
 class SaleController extends Controller
 {
     /**
-     * ✅ FIXED: Get next transaction code dengan sistem yang benar
-     * Sistem TR berkelanjutan untuk semua kasir tanpa reset
+     * ✅ UPDATED: Get next transaction code dengan format baru
+     * Format: TR + 2-digit year + 2-digit month + 2-digit day + 6-digit counter (reset harian)
+     * Contoh: TR250829000001 (29 Agustus 2025, transaksi ke-1)
      */
     public function getNextTransactionCode()
     {
         try {
             return DB::transaction(function () {
-                // 🔥 SOLUSI: Lock dan ambil TR tertinggi dari semua transaksi
+                $today = now();
+                $year = $today->format('y'); // 2-digit year
+                $month = $today->format('m'); // 2-digit month
+                $day = $today->format('d'); // 2-digit day
+                $datePrefix = 'TR' . $year . $month . $day;
+                
+                // 🔥 SOLUSI: Lock dan ambil transaksi tertinggi untuk hari ini
                 $latestSale = Sale::lockForUpdate()
-                    ->where('transaction_code', 'LIKE', 'TR%')
-                    ->orderByRaw('CAST(SUBSTRING(transaction_code, 3) AS UNSIGNED) DESC')
+                    ->where('transaction_code', 'LIKE', $datePrefix . '%')
+                    ->whereDate('created_at', $today->toDateString())
+                    ->orderByRaw('CAST(SUBSTRING(transaction_code, 9) AS UNSIGNED) DESC')
                     ->first();
 
-                $nextNumber = 1;
-
-                if ($latestSale && preg_match('/^TR(\d+)$/', $latestSale->transaction_code, $matches)) {
-                    $nextNumber = (int) $matches[1] + 1;
+                $nextSequence = 1;
+                
+                if ($latestSale) {
+                    // Extract the sequence number from the last transaction code
+                    if (preg_match('/^TR\d{6}(\d{6})$/', $latestSale->transaction_code, $matches)) {
+                        $nextSequence = (int) $matches[1] + 1;
+                    }
                 }
 
-                // 🔥 SAFETY: Pastikan tidak ada collision
+                // 🔥 SAFETY: Pastikan tidak ada collision untuk hari ini
                 do {
-                    $nextCode = 'TR' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
+                    $nextCode = $datePrefix . str_pad($nextSequence, 6, '0', STR_PAD_LEFT);
                     $exists = Sale::where('transaction_code', $nextCode)->exists();
                     if ($exists) {
-                        $nextNumber++;
+                        $nextSequence++;
                     }
                 } while ($exists);
 
                 Log::info('✅ Next transaction code generated', [
                     'next_code' => $nextCode,
+                    'date_prefix' => $datePrefix,
+                    'sequence' => $nextSequence,
                     'user_id' => Auth::id(),
                     'latest_code' => $latestSale ? $latestSale->transaction_code : 'none'
                 ]);
@@ -84,7 +97,7 @@ class SaleController extends Controller
 
         // ✅ VALIDATION - Termasuk validasi diskon
         $validator = Validator::make($request->all(), [
-            'transaction_code' => 'required|string|regex:/^TR\d{3,}$/|unique:sales,transaction_code',
+            'transaction_code' => 'required|string|regex:/^TR\d{6}\d{6}$/|unique:sales,transaction_code',
             'date' => 'required|date',
             'payment_method' => 'required|string|in:tunai,qris',
             'cash_received' => 'required|numeric|min:0',
