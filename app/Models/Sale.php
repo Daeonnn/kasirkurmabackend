@@ -150,8 +150,8 @@ class Sale extends Model
 
     public function setTransactionCodeAttribute($value)
     {
-        if (!preg_match('/^TR\d+$/', $value)) {
-            throw new \InvalidArgumentException('Transaction code harus dalam format TR diikuti angka');
+        if (!preg_match('/^TR\d{6}\d{6}$/', $value)) {
+            throw new \InvalidArgumentException('Transaction code harus dalam format TR + 6 digit tanggal (YYMMDD) + 6 digit nomor urut');
         }
 
         $this->attributes['transaction_code'] = $value;
@@ -231,20 +231,24 @@ class Sale extends Model
 
     public static function getNextTransactionCode()
     {
-        $lastSale = static::where('transaction_code', 'LIKE', 'TR%')
-            ->orderByRaw('CAST(SUBSTRING(transaction_code, 3) AS UNSIGNED) DESC')
+        // Format: TR + YY + MM + DD + 000001
+        $today = now();
+        $datePrefix = $today->format('ymd'); // 250829 untuk 29 Agustus 2025
+        $transactionPrefix = 'TR' . $datePrefix;
+        
+        // Ambil transaksi terakhir untuk hari ini
+        $lastSale = static::where('transaction_code', 'LIKE', $transactionPrefix . '%')
+            ->orderByRaw('CAST(SUBSTRING(transaction_code, 9) AS UNSIGNED) DESC')
             ->first();
 
-        if (!$lastSale) {
-            return 'TR001';
-        }
+        $nextNumber = 1;
 
-        if (preg_match('/^TR(\d+)$/', $lastSale->transaction_code, $matches)) {
+        // Jika ada transaksi hari ini, ambil nomor urut terakhir dan tambah 1
+        if ($lastSale && preg_match('/^TR\d{6}(\d{6})$/', $lastSale->transaction_code, $matches)) {
             $nextNumber = (int) $matches[1] + 1;
-            return 'TR' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
         }
 
-        return 'TR001';
+        return $transactionPrefix . str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
     }
 
     public static function isTransactionCodeExists($transactionCode)
