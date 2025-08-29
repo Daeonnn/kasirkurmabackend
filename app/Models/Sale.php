@@ -247,9 +247,15 @@ class Sale extends Model
         return 'TR001';
     }
 
-    public static function isTransactionCodeExists($transactionCode)
+    public static function isTransactionCodeExists($transactionCode, $userId = null)
     {
-        return static::where('transaction_code', $transactionCode)->exists();
+        $query = static::where('transaction_code', $transactionCode);
+        
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+        
+        return $query->exists();
     }
 
     public static function getDiscountStatistics($startDate = null, $endDate = null)

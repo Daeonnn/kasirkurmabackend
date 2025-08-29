@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Log;
 class SaleController extends Controller
 {
     /**
-     * ✅ UPDATED: Get next transaction code dengan format baru
+     * ✅ FIXED: Get next transaction code dengan format baru
      * Format: TR + 2-digit year + 2-digit month + 2-digit day + 6-digit counter (reset harian)
-     * Contoh: TR250829000001 (29 Agustus 2025, transaksi ke-1)
+     * Contoh: TR250830000001 (30 Agustus 2025, transaksi ke-1)
      */
     public function getNextTransactionCode()
     {
@@ -31,7 +31,7 @@ class SaleController extends Controller
                 // 🔥 SOLUSI: Lock dan ambil transaksi tertinggi untuk hari ini
                 $latestSale = Sale::lockForUpdate()
                     ->where('transaction_code', 'LIKE', $datePrefix . '%')
-                    ->whereDate('created_at', $today->toDateString())
+                    ->whereDate('date', $today->toDateString())
                     ->orderByRaw('CAST(SUBSTRING(transaction_code, 9) AS UNSIGNED) DESC')
                     ->first();
 
@@ -83,19 +83,21 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ UPDATED: Store sale dengan validasi diskon yang ketat
+     * ✅ FIXED: Store sale dengan validasi yang benar
      */
     public function store(Request $request)
     {
+        $userId = Auth::id();
+        
         Log::info('🚀 Sale transaction started', [
             'transaction_code' => $request->transaction_code,
-            'user_id' => Auth::id(),
+            'user_id' => $userId,
             'items_count' => count($request->items ?? []),
             'has_discount' => $request->has('discount') && $request->discount,
             'total_amount' => $request->total_amount
         ]);
 
-        // ✅ VALIDATION - Termasuk validasi diskon
+        // ✅ VALIDATION FIXED - Format TR + 6 digit tanggal + 6 digit sequence
         $validator = Validator::make($request->all(), [
             'transaction_code' => 'required|string|regex:/^TR\d{6}\d{6}$/|unique:sales,transaction_code',
             'date' => 'required|date',
@@ -108,7 +110,7 @@ class SaleController extends Controller
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.selling_price' => 'required|numeric|min:0',
             'items.*.subtotal' => 'required|numeric|min:0',
-            // ✅ VALIDASI DISKON - BARU
+            // ✅ VALIDASI DISKON
             'discount' => 'nullable|array',
             'discount.type' => 'nullable|required_with:discount|in:percentage,fixed',
             'discount.value' => 'nullable|required_with:discount|numeric|min:0',
@@ -149,7 +151,8 @@ class SaleController extends Controller
         if ($validator->fails()) {
             Log::warning('❌ Validation failed', [
                 'errors' => $validator->errors(),
-                'transaction_code' => $request->transaction_code
+                'transaction_code' => $request->transaction_code,
+                'user_id' => $userId
             ]);
 
             return response()->json([
@@ -159,13 +162,13 @@ class SaleController extends Controller
             ], 422);
         }
 
-        // ✅ PROCESS TRANSACTION DENGAN DISKON
-        return DB::transaction(function () use ($request) {
+        // ✅ PROCESS TRANSACTION
+        return DB::transaction(function () use ($request, $userId) {
             $transactionCode = $request->transaction_code;
             $subtotalCalculated = 0;
             $details = [];
 
-            // ✅ VALIDASI & UPDATE STOCK - Kasir ambil dari produk admin
+            // ✅ VALIDASI & UPDATE STOCK
             foreach ($request->items as $item) {
                 $product = Product::lockForUpdate()->find($item['product_id']);
 
@@ -193,16 +196,17 @@ class SaleController extends Controller
                     'subtotal' => $item['subtotal'],
                 ];
 
-                // ✅ UPDATE STOCK - Kurangi dari stok admin
+                // ✅ UPDATE STOCK
                 $product->stock -= $item['quantity'];
                 $product->save();
 
-                Log::info('📦 Stock updated', [
+                Log::info('📦 Stock reduced', [
                     'product_id' => $product->id,
                     'product_name' => $product->name,
                     'quantity_sold' => $item['quantity'],
                     'stock_remaining' => $product->stock,
-                    'updated_by_kasir' => Auth::id()
+                    'transaction_code' => $transactionCode,
+                    'sold_by_user' => $userId
                 ]);
             }
 
@@ -246,7 +250,8 @@ class SaleController extends Controller
                     'discount_value' => $discountValue,
                     'discount_amount' => $discountAmount,
                     'subtotal' => $subtotalCalculated,
-                    'final_total' => $finalTotal
+                    'final_total' => $finalTotal,
+                    'user_id' => $userId
                 ]);
             }
 
@@ -267,19 +272,19 @@ class SaleController extends Controller
                 }
             }
 
-            // ✅ CREATE SALE RECORD DENGAN DISKON
+            // ✅ CREATE SALE RECORD
             $saleData = [
                 'transaction_code' => $transactionCode,
                 'date' => $request->date,
-                'subtotal_amount' => $subtotalCalculated, // ✅ BARU
-                'discount_type' => $discountType, // ✅ BARU
-                'discount_value' => $discountValue, // ✅ BARU
-                'discount_amount' => $discountAmount, // ✅ BARU
+                'subtotal_amount' => $subtotalCalculated,
+                'discount_type' => $discountType,
+                'discount_value' => $discountValue,
+                'discount_amount' => $discountAmount,
                 'total_price' => $request->total_amount,
                 'payment_method' => $request->payment_method,
                 'cash_received' => $request->cash_received,
                 'change_amount' => $request->change_amount,
-                'user_id' => Auth::id(),
+                'user_id' => $userId,
             ];
 
             $sale = Sale::create($saleData);
@@ -297,10 +302,10 @@ class SaleController extends Controller
                 'discount_amount' => $sale->discount_amount,
                 'total_price' => $sale->total_price,
                 'payment_method' => $sale->payment_method,
-                'kasir_id' => Auth::id()
+                'user_id' => $userId
             ]);
 
-            // ✅ RETURN RESPONSE DENGAN DATA DISKON
+            // ✅ RETURN RESPONSE
             return response()->json([
                 'success' => true,
                 'message' => 'Transaksi berhasil disimpan',
@@ -327,13 +332,25 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ GET ALL SALES - Admin dan kasir bisa lihat (dengan data diskon)
+     * ✅ GET ALL SALES - dengan filter per role
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
             $user = Auth::user();
             $query = Sale::with(['details.product', 'user']);
+
+            // ✅ FILTER PER ROLE
+            if ($user && $user->role && $user->role->name === 'kasir') {
+                // Kasir hanya bisa lihat transaksi mereka sendiri
+                $query->where('user_id', $user->id);
+            }
+            // Admin bisa lihat semua transaksi
+
+            // ✅ OPTIONAL FILTER BY USER (untuk admin)
+            if ($request->has('user_id') && $user && $user->role && $user->role->name === 'admin') {
+                $query->where('user_id', $request->user_id);
+            }
 
             $sales = $query->orderBy('id', 'desc')->get();
 
@@ -383,15 +400,26 @@ class SaleController extends Controller
         }
     }
 
+    /**
+     * ✅ GET SALE DETAIL - dengan role-based access
+     */
     public function show($id)
     {
         try {
-            $sale = Sale::with(['details.product', 'user'])->find($id);
+            $user = Auth::user();
+            $query = Sale::with(['details.product', 'user']);
+
+            // ✅ FILTER PER ROLE
+            if ($user && $user->role && $user->role->name === 'kasir') {
+                $query->where('user_id', $user->id);
+            }
+
+            $sale = $query->find($id);
 
             if (!$sale) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Transaksi tidak ditemukan'
+                    'message' => 'Transaksi tidak ditemukan atau tidak memiliki akses'
                 ], 404);
             }
 
@@ -440,12 +468,11 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ SALES REPORT DENGAN STATISTIK DISKON - Hanya admin yang bisa akses
+     * ✅ SALES REPORT - Admin only
      */
     public function report(Request $request)
     {
         try {
-            // ✅ Check permission
             $user = Auth::user();
             if (!$user || !$user->role || $user->role->name !== 'admin') {
                 return response()->json([
@@ -454,27 +481,34 @@ class SaleController extends Controller
                 ], 403);
             }
 
-            $sales = Sale::with(['details.product', 'user'])
-                ->when($request->has('start_date'), function ($query) use ($request) {
-                    $query->whereDate('date', '>=', $request->start_date);
-                })
-                ->when($request->has('end_date'), function ($query) use ($request) {
-                    $query->whereDate('date', '<=', $request->end_date);
-                })
-                ->orderBy('id', 'desc')
-                ->get();
+            $query = Sale::with(['details.product', 'user']);
+
+            // ✅ FILTER OPTIONS
+            if ($request->has('start_date')) {
+                $query->whereDate('date', '>=', $request->start_date);
+            }
+            if ($request->has('end_date')) {
+                $query->whereDate('date', '<=', $request->end_date);
+            }
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->user_id);
+            }
+
+            $sales = $query->orderBy('id', 'desc')->get();
 
             $totalRevenue = $sales->sum('total_price');
             $totalTransactions = $sales->count();
             $totalItemsSold = $sales->flatMap->details->sum('quantity');
 
-            // ✅ STATISTIK DISKON - BARU
-            $discountStatistics = Sale::getDiscountStatistics($request->start_date, $request->end_date);
+            // ✅ STATISTIK DISKON
+            $discountStatistics = Sale::getDiscountStatistics(
+                $request->start_date,
+                $request->end_date
+            );
 
-            Log::info('📊 Sales report with discount generated by admin', [
+            Log::info('📊 Sales report generated by admin', [
                 'total_transactions' => $totalTransactions,
                 'total_revenue' => $totalRevenue,
-                'total_discount_amount' => $discountStatistics['total_discount_amount'],
                 'admin_user_id' => Auth::id(),
                 'date_range' => [
                     'start' => $request->start_date,
@@ -489,7 +523,7 @@ class SaleController extends Controller
                     'total_revenue' => $totalRevenue,
                     'total_transactions' => $totalTransactions,
                     'total_items_sold' => $totalItemsSold,
-                    'discount_statistics' => $discountStatistics, // ✅ BARU
+                    'discount_statistics' => $discountStatistics,
                     'sales' => $sales
                 ]
             ]);
@@ -508,12 +542,11 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ ENDPOINT BARU: Laporan khusus diskon - Hanya admin
+     * ✅ DISCOUNT REPORT - Admin only
      */
     public function discountReport(Request $request)
     {
         try {
-            // ✅ Check permission
             $user = Auth::user();
             if (!$user || !$user->role || $user->role->name !== 'admin') {
                 return response()->json([
@@ -522,7 +555,10 @@ class SaleController extends Controller
                 ], 403);
             }
 
-            $discountReport = Sale::getDiscountReport($request->start_date, $request->end_date);
+            $discountReport = Sale::getDiscountReport(
+                $request->start_date,
+                $request->end_date
+            );
 
             Log::info('📊 Discount report generated by admin', [
                 'total_sales_with_discount' => $discountReport['statistics']['sales_with_discount'],
@@ -550,7 +586,7 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ ENDPOINT BARU: Statistik diskon untuk dashboard - Admin & Kasir
+     * ✅ DISCOUNT STATS - per role
      */
     public function discountStats(Request $request)
     {
@@ -563,7 +599,6 @@ class SaleController extends Controller
                 ], 403);
             }
 
-            // Default ke 30 hari terakhir jika tidak ada filter
             $endDate = $request->end_date ?: now()->format('Y-m-d');
             $startDate = $request->start_date ?: now()->subDays(30)->format('Y-m-d');
 
@@ -589,7 +624,7 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ UPDATE SALE - Jika diperlukan (tetap tidak diizinkan)
+     * ✅ UPDATE SALE - Disabled
      */
     public function update(Request $request, $id)
     {
@@ -600,7 +635,7 @@ class SaleController extends Controller
     }
 
     /**
-     * ✅ DELETE SALE DENGAN RESTORE STOCK - Hanya admin
+     * ✅ DELETE SALE DENGAN RESTORE STOCK - Admin only
      */
     public function destroy($id)
     {
@@ -630,23 +665,24 @@ class SaleController extends Controller
                         $product->stock += $detail->quantity;
                         $product->save();
 
-                        Log::info('📦 Stock restored after deletion', [
+                        Log::info('📦 Stock restored after transaction deletion', [
                             'product_id' => $product->id,
                             'quantity_restored' => $detail->quantity,
-                            'new_stock' => $product->stock
+                            'new_stock' => $product->stock,
+                            'transaction_code' => $sale->transaction_code,
+                            'original_user_id' => $sale->user_id
                         ]);
                     }
                 }
 
-                // ✅ DELETE SALE (cascade akan hapus details)
                 $sale->delete();
 
-                Log::info('🗑️ Sale with discount deleted by admin', [
+                Log::info('🗑️ Sale deleted by admin', [
                     'deleted_sale_id' => $id,
                     'transaction_code' => $sale->transaction_code,
+                    'original_user_id' => $sale->user_id,
                     'had_discount' => $sale->discount_amount > 0,
                     'discount_amount' => $sale->discount_amount,
-                    'discount_type' => $sale->discount_type,
                     'admin_user_id' => Auth::id()
                 ]);
 
