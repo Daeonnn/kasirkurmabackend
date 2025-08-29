@@ -231,28 +231,20 @@ class Sale extends Model
 
     public static function getNextTransactionCode()
     {
-        $today = now();
-        $year = $today->format('y'); // 2-digit year
-        $month = $today->format('m'); // 2-digit month
-        $day = $today->format('d'); // 2-digit day
-        $datePrefix = 'TR' . $year . $month . $day;
-        
-        // Find the latest transaction code for today
-        $lastSale = static::where('transaction_code', 'LIKE', $datePrefix . '%')
-            ->whereDate('created_at', $today->toDateString())
-            ->orderByRaw('CAST(SUBSTRING(transaction_code, 9) AS UNSIGNED) DESC')
+        $lastSale = static::where('transaction_code', 'LIKE', 'TR%')
+            ->orderByRaw('CAST(SUBSTRING(transaction_code, 3) AS UNSIGNED) DESC')
             ->first();
 
-        $nextSequence = 1;
-        
-        if ($lastSale) {
-            // Extract the sequence number from the last transaction code
-            if (preg_match('/^TR\d{6}(\d{6})$/', $lastSale->transaction_code, $matches)) {
-                $nextSequence = (int) $matches[1] + 1;
-            }
+        if (!$lastSale) {
+            return 'TR001';
         }
-        
-        return $datePrefix . str_pad($nextSequence, 6, '0', STR_PAD_LEFT);
+
+        if (preg_match('/^TR(\d+)$/', $lastSale->transaction_code, $matches)) {
+            $nextNumber = (int) $matches[1] + 1;
+            return 'TR' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
+        }
+
+        return 'TR001';
     }
 
     public static function isTransactionCodeExists($transactionCode)
