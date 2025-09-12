@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Sale extends Model
 {
@@ -11,6 +12,7 @@ class Sale extends Model
 
     protected $fillable = [
         'transaction_code',
+        'transaction_sequence', // ✅ TAMBAHAN BARU untuk per-user system
         'date',
         'total_price',
         'payment_method',
@@ -24,6 +26,7 @@ class Sale extends Model
     ];
 
     protected $casts = [
+        'transaction_sequence' => 'integer', // ✅ TAMBAHAN BARU
         'total_price' => 'decimal:2',
         'cash_received' => 'decimal:2',
         'change_amount' => 'decimal:2',
@@ -33,6 +36,7 @@ class Sale extends Model
         'discount_value' => 'decimal:2',
     ];
 
+    // ✅ RELATIONSHIPS (tidak berubah)
     public function details()
     {
         return $this->hasMany(SaleDetail::class);
@@ -43,6 +47,7 @@ class Sale extends Model
         return $this->belongsTo(User::class);
     }
 
+    // ✅ SCOPES (tambahkan scope baru untuk per-user)
     public function scopeByDateRange($query, $startDate, $endDate)
     {
         return $query->whereBetween('date', [$startDate, $endDate]);
@@ -75,6 +80,7 @@ class Sale extends Model
         });
     }
 
+    // ✅ ACCESSORS (tidak berubah, tetap sama)
     public function getFormattedTransactionCodeAttribute()
     {
         return $this->transaction_code;
@@ -148,11 +154,12 @@ class Sale extends Model
         return $this->discount_amount ?? 0;
     }
 
+    // ✅ MUTATORS - Update untuk per-user system
     public function setTransactionCodeAttribute($value)
     {
-        if (!preg_match('/^TR\d+$/', $value)) {
-            throw new \InvalidArgumentException('Transaction code harus dalam format TR diikuti angka');
-        }
+       if (!preg_match('/^TR\d{8}\d{6}$/', $value)) {
+    throw new \InvalidArgumentException('Transaction code harus dalam format TR-YYYY-MM-DD-XXX (contoh: TR-2025-08-30-001)');
+}
 
         $this->attributes['transaction_code'] = $value;
     }
@@ -181,6 +188,7 @@ class Sale extends Model
         $this->attributes['discount_value'] = $value;
     }
 
+    // ✅ BUSINESS LOGIC METHODS (tidak berubah)
     public function calculateTotalWithDiscount($subtotal, $discountType, $discountValue)
     {
         $discountAmount = 0;
@@ -229,35 +237,74 @@ class Sale extends Model
         return ['valid' => true, 'message' => 'Discount valid'];
     }
 
-    public static function getNextTransactionCode()
-    {
-        $lastSale = static::where('transaction_code', 'LIKE', 'TR%')
-            ->orderByRaw('CAST(SUBSTRING(transaction_code, 3) AS UNSIGNED) DESC')
+    // ✅ UPDATED: Per-User Transaction Code Methods
+   public static function getNextTransactionCode($userId = null)
+{
+    if (!$userId) {
+        throw new \InvalidArgumentException('User ID diperlukan untuk generate transaction code');
+    }
+
+    $today = now()->format('Ymd'); // Format tanggal: YYYY-MM-DD
+
+    // Gunakan transaksi database agar aman dari race condition
+    $result = DB::transaction(function () use ($userId, $today) {
+        // 🔒 Lock row untuk user ini pada hari ini, urutkan dari sequence terbesar
+        $latestSale = static::lockForUpdate()
+            ->where('user_id', $userId)
+            ->where('date', $today)
+            ->orderBy('transaction_sequence', 'desc')
             ->first();
 
-        if (!$lastSale) {
-            return 'TR001';
-        }
+        $nextSequence = $latestSale ? $latestSale->transaction_sequence + 1 : 1;
 
-        if (preg_match('/^TR(\d+)$/', $lastSale->transaction_code, $matches)) {
-            $nextNumber = (int) $matches[1] + 1;
-            return 'TR' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
-        }
+        // Format: TR-YYYY-MM-DD-XXX (3 digit sequence)
+        $transactionCode = 'TR' . $today . str_pad($nextSequence, 6, '0', STR_PAD_LEFT);
 
-        return 'TR001';
-    }
+        return [
+            'transaction_code' => $transactionCode,
+            'transaction_sequence' => $nextSequence,
+        ];
+    });
 
-    public static function isTransactionCodeExists($transactionCode)
+    return $result;
+}
+
+    // ✅ UPDATED: Check per-user transaction code
+    public static function isTransactionCodeExists($transactionCode, $userId = null)
     {
-        return static::where('transaction_code', $transactionCode)->exists();
+        if (!$userId) {
+            throw new \InvalidArgumentException('User ID diperlukan untuk check transaction code');
+        }
+
+        return static::where('transaction_code', $transactionCode)
+            ->where('user_id', $userId)
+            ->exists();
     }
 
-    public static function getDiscountStatistics($startDate = null, $endDate = null)
+    // ✅ UPDATED: Check per-user transaction sequence
+    public static function isTransactionSequenceExists($sequence, $userId = null)
+    {
+        if (!$userId) {
+            // Dalam static context, kita perlu require userId
+            throw new \InvalidArgumentException('User ID diperlukan untuk check transaction sequence');
+        }
+
+        return static::where('transaction_sequence', $sequence)
+            ->where('user_id', $userId)
+            ->exists();
+    }
+
+    // ✅ UPDATED: Discount statistics dengan filter user
+    public static function getDiscountStatistics($startDate = null, $endDate = null, $userId = null)
     {
         $query = static::query();
 
         if ($startDate && $endDate) {
             $query->whereBetween('date', [$startDate, $endDate]);
+        }
+
+        if ($userId) {
+            $query->where('user_id', $userId);
         }
 
         $allSales = $query->get();
@@ -277,7 +324,8 @@ class Sale extends Model
         ];
     }
 
-    public static function getDiscountReport($startDate = null, $endDate = null)
+    // ✅ UPDATED: Discount report dengan filter user
+    public static function getDiscountReport($startDate = null, $endDate = null, $userId = null)
     {
         $query = static::withDiscount()->with(['details.product', 'user']);
 
@@ -289,48 +337,69 @@ class Sale extends Model
             $query->whereDate('date', '<=', $endDate);
         }
 
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
         $sales = $query->orderBy('date', 'desc')->get();
-        $statistics = static::getDiscountStatistics($startDate, $endDate);
+        $statistics = static::getDiscountStatistics($startDate, $endDate, $userId);
 
         return [
             'statistics' => $statistics,
             'sales' => $sales,
             'period' => [
                 'start_date' => $startDate,
-                'end_date' => $endDate
+                'end_date' => $endDate,
+                'user_id' => $userId
             ]
         ];
     }
 
-    public static function getDailyReport($date = null)
+    // ✅ UPDATED: Daily report dengan filter user
+    public static function getDailyReport($date = null, $userId = null)
     {
-        $date = $date ?: now()->format('Y-m-d');
+        $date = $date ?: now()->format('Ymd');
+        $query = static::with(['details.product', 'user'])
+            ->whereDate('date', $date);
 
-        return static::with(['details.product', 'user'])
-            ->whereDate('date', $date)
-            ->get();
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        return $query->get();
     }
 
-    public static function getMonthlyReport($year = null, $month = null)
+    // ✅ UPDATED: Monthly report dengan filter user
+    public static function getMonthlyReport($year = null, $month = null, $userId = null)
     {
         $year = $year ?: now()->year;
         $month = $month ?: now()->month;
 
-        return static::with(['details.product', 'user'])
+        $query = static::with(['details.product', 'user'])
             ->whereYear('date', $year)
-            ->whereMonth('date', $month)
-            ->get();
+            ->whereMonth('date', $month);
+
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        return $query->get();
     }
 
+    // ✅ UPDATED: Boot method untuk per-user system
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($sale) {
-            if (empty($sale->transaction_code)) {
-                $sale->transaction_code = static::getNextTransactionCode();
+            // ✅ Auto-generate transaction code dan sequence jika belum ada
+            if (empty($sale->transaction_code) || empty($sale->transaction_sequence)) {
+                $nextTransaction = static::getNextTransactionCode($sale->user_id);
+                $sale->transaction_code = $nextTransaction['transaction_code'];
+                $sale->transaction_sequence = $nextTransaction['transaction_sequence'];
             }
 
+            // ✅ Validasi discount (tidak berubah)
             if ($sale->discount_amount && $sale->discount_amount > 0) {
                 if (!$sale->discount_type) {
                     throw new \InvalidArgumentException('Discount type harus diisi jika ada discount amount');
@@ -358,6 +427,7 @@ class Sale extends Model
         });
 
         static::updating(function ($sale) {
+            // ✅ Validasi discount saat update (tidak berubah)
             if ($sale->discount_amount && $sale->discount_amount > 0) {
                 if (!$sale->discount_type) {
                     throw new \InvalidArgumentException('Discount type harus diisi jika ada discount amount');

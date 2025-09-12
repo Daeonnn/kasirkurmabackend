@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class Product extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory;
 
     protected $fillable = [
         'kode_barang',
@@ -32,6 +33,7 @@ class Product extends Model
 
     protected $appends = ['photo_url'];
 
+    // Accessor
     public function getPhotoUrlAttribute()
     {
         if ($this->photo) {
@@ -40,6 +42,7 @@ class Product extends Model
         return null;
     }
 
+    // Photo management
     public function deletePhoto()
     {
         if ($this->photo && Storage::disk('public')->exists($this->photo)) {
@@ -47,6 +50,7 @@ class Product extends Model
         }
     }
 
+    // Relationships
     public function jenis()
     {
         return $this->belongsTo(Jenis::class, 'jenis_id');
@@ -72,7 +76,67 @@ class Product extends Model
         return $this->hasMany(SaleDetail::class);
     }
 
-    public function reduceStock($quantity)
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class)->orderBy('created_at', 'desc');
+    }
+
+    // Stock Management Methods dengan tracking
+    public function addStock($quantity, $distributorId = null, $notes = null)
+    {
+        return DB::transaction(function () use ($quantity, $distributorId, $notes) {
+            // Update stock
+            $this->stock += $quantity;
+            $this->save();
+
+            // Create movement record
+            $movement = StockMovement::create([
+                'product_id' => $this->id,
+                'type' => 'in',
+                'quantity' => $quantity,
+                'distributor_id' => $distributorId,
+                'notes' => $notes ?: 'Restock Baru',
+                'user_id' => Auth::id()
+            ]);
+
+            return $movement;
+        });
+    }
+
+    public function reduceStock($quantity, $notes = null)
+    {
+        return DB::transaction(function () use ($quantity, $notes) {
+            if ($this->stock < $quantity) {
+                throw new \Exception("Stok tidak cukup. Tersedia: {$this->stock}, Dibutuhkan: {$quantity}");
+            }
+
+            // Update stock
+            $this->stock -= $quantity;
+            $this->save();
+
+            // Create movement record
+            $movement = StockMovement::create([
+                'product_id' => $this->id,
+                'type' => 'out',
+                'quantity' => $quantity,
+                'distributor_id' => null, // Stock out tidak dari distributor
+                'notes' => $notes ?: 'Pengurangan stok dari penjualan',
+                'user_id' => Auth::id()
+            ]);
+
+            return $movement;
+        });
+    }
+
+    // Legacy methods untuk backward compatibility
+    public function addStockLegacy($quantity)
+    {
+        $this->stock += $quantity;
+        $this->save();
+        return true;
+    }
+
+    public function reduceStockLegacy($quantity)
     {
         if ($this->stock >= $quantity) {
             $this->stock -= $quantity;
@@ -82,18 +146,23 @@ class Product extends Model
         return false;
     }
 
-    public function addStock($quantity)
-    {
-        $this->stock += $quantity;
-        $this->save();
-        return true;
-    }
-
+    // Boot method dengan protection
     protected static function boot()
     {
         parent::boot();
 
         static::deleting(function ($product) {
+            // Check if product has sales history
+            if ($product->saleDetails()->exists()) {
+                throw new \Exception('Tidak dapat menghapus produk yang sudah pernah dijual');
+            }
+
+            // Check if product has stock movements
+            if ($product->stockMovements()->exists()) {
+                throw new \Exception('Tidak dapat menghapus produk yang memiliki riwayat stok');
+            }
+
+            // Delete photo
             $product->deletePhoto();
         });
     }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Distributor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class DistributorController extends Controller
 {
@@ -16,12 +17,12 @@ class DistributorController extends Controller
     {
         try {
             $distributors = Distributor::with('products')->get();
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Data distributor berhasil diambil',
                 'data' => $distributors
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -90,7 +91,7 @@ class DistributorController extends Controller
                 'success' => true,
                 'message' => 'Data distributor berhasil diambil',
                 'data' => $distributor
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -139,7 +140,7 @@ class DistributorController extends Controller
                 'success' => true,
                 'message' => 'Distributor berhasil diperbarui',
                 'data' => $distributor
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -164,20 +165,21 @@ class DistributorController extends Controller
                 ], 404);
             }
 
-            // Check if distributor has products
+            // Cek apakah distributor masih digunakan di tabel products
             if ($distributor->products()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Tidak dapat menghapus distributor yang masih memiliki produk'
+                    'message' => 'Tidak dapat dihapus karena Distributor telah digunakan'
                 ], 400);
             }
 
+            // Hard delete
             $distributor->delete();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Distributor berhasil dihapus'
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

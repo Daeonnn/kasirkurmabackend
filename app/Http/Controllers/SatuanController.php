@@ -5,20 +5,35 @@ namespace App\Http\Controllers;
 use App\Models\Satuan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class SatuanController extends Controller
 {
+    /**
+     * Display a listing of the resource.
+     */
     public function index()
     {
-        $satuan = Satuan::all();
+        try {
+            $satuan = Satuan::all();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Data satuan berhasil diambil',
-            'data' => $satuan
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Data satuan berhasil diambil',
+                'data' => $satuan
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data satuan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
+    /**
+     * Store a newly created resource in storage.
+     */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -52,35 +67,40 @@ class SatuanController extends Controller
         }
     }
 
+    /**
+     * Display the specified resource.
+     */
     public function show($id)
     {
-        $satuan = Satuan::withTrashed()->find($id);
+        try {
+            $satuan = Satuan::find($id);
 
-        if (!$satuan) {
+            if (!$satuan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Satuan tidak ditemukan'
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Data satuan berhasil diambil',
+                'data' => $satuan
+            ], 200);
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Satuan tidak ditemukan'
-            ], 404);
+                'message' => 'Gagal mengambil data satuan',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Satuan ditemukan',
-            'data' => $satuan
-        ]);
     }
 
+    /**
+     * Update the specified resource in storage.
+     */
     public function update(Request $request, $id)
     {
-        $satuan = Satuan::withTrashed()->find($id);
-
-        if (!$satuan) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Satuan tidak ditemukan'
-            ], 404);
-        }
-
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:50|unique:satuan,name,' . $id,
         ]);
@@ -93,64 +113,70 @@ class SatuanController extends Controller
             ], 422);
         }
 
-        $satuan->update([
-            'name' => $request->name
-        ]);
+        try {
+            $satuan = Satuan::find($id);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Satuan berhasil diperbarui',
-            'data' => $satuan
-        ]);
+            if (!$satuan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Satuan tidak ditemukan'
+                ], 404);
+            }
+
+            $satuan->update([
+                'name' => $request->name
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Satuan berhasil diperbarui',
+                'data' => $satuan
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memperbarui satuan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
+    /**
+     * Remove the specified resource from storage.
+     */
     public function destroy($id)
     {
-        $satuan = Satuan::find($id);
+        try {
+            $satuan = Satuan::find($id);
 
-        if (!$satuan) {
+            if (!$satuan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Satuan tidak ditemukan'
+                ], 404);
+            }
+
+            // Cek apakah satuan masih digunakan di tabel products
+            if ($satuan->products()->count() > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak dapat dihapus karena satuan telah digunakan'
+                ], 400);
+            }
+
+            // Hard delete
+            $satuan->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Satuan berhasil dihapus'
+            ], 200);
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Satuan tidak ditemukan'
-            ], 404);
+                'message' => 'Gagal menghapus satuan',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $satuan->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Satuan berhasil dihapus'
-        ]);
-    }
-
-    public function trashed()
-    {
-        $trashed = Satuan::onlyTrashed()->get();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Data satuan yang dihapus berhasil diambil',
-            'data' => $trashed
-        ]);
-    }
-
-    public function restore($id)
-    {
-        $satuan = Satuan::onlyTrashed()->find($id);
-
-        if (!$satuan) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Satuan tidak ditemukan di data terhapus'
-            ], 404);
-        }
-
-        $satuan->restore();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Satuan berhasil dikembalikan',
-            'data' => $satuan
-        ]);
     }
 }

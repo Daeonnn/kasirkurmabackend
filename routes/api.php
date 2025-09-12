@@ -70,10 +70,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/users/role/{roleId}', [UserController::class, 'getByRole']);
 
         // ✅ SALES ROUTES - ADMIN ONLY
-        Route::get('/sales/report', [SaleController::class, 'report']);
+        Route::get('/sales/reports/general', [SaleController::class, 'report']);
+        Route::get('/sales/reports/discount', [SaleController::class, 'discountReport']);
         Route::delete('/sales/{id}', [SaleController::class, 'destroy']);
 
-        // ✅ DISCOUNT ROUTES - BARU - ADMIN ONLY
+        // ✅ ADMIN TRANSACTION ROUTES - BARU!
+        // Admin bisa melakukan transaksi sama seperti kasir
+        Route::get('/admin/sales/next-transaction-code', [SaleController::class, 'getNextTransactionCode']);
+        Route::post('/admin/sales', [SaleController::class, 'store']);
+        Route::get('/admin/sales', [SaleController::class, 'index']);
+        Route::get('/admin/sales/{id}', [SaleController::class, 'show']);
+
+        // ✅ LEGACY COMPATIBILITY 
+        Route::get('/sales/report', [SaleController::class, 'report']);
         Route::get('/sales/discount-report', [SaleController::class, 'discountReport']);
 
         // Legacy Route
@@ -87,25 +96,33 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // ✅ PRODUCT ROUTES
         Route::apiResource('products', ProductController::class);
+
+        // EXISTING stock routes
         Route::patch('/products/{id}/add-stock', [ProductController::class, 'simpleAddStock']);
         Route::get('/products/low-stock', [ProductController::class, 'getLowStock']);
         Route::get('/products/out-of-stock', [ProductController::class, 'getOutOfStock']);
 
-        // ✅ SALES ROUTES - ADMIN & KASIR (Updated untuk diskon)
-        Route::get('/sales/next-transaction-code', [SaleController::class, 'getNextTransactionCode']);
-        Route::get('/sales', [SaleController::class, 'index']); // ✅ Updated: Include discount info
-        Route::post('/sales', [SaleController::class, 'store']); // ✅ Updated: Handle discount
-        Route::get('/sales/{id}', [SaleController::class, 'show']); // ✅ Updated: Include discount info
-        Route::put('/sales/{id}', [SaleController::class, 'update']); // Tetap tidak diizinkan
+        // ✅ Enhanced Stock Tracking Routes
+        Route::post('/products/{id}/add-stock-tracking', [ProductController::class, 'addStockWithTracking']);
+        Route::get('/products/{id}/stock-history', [ProductController::class, 'getStockHistory']);
 
-        // ✅ DISCOUNT STATS ROUTE - BARU - ADMIN & KASIR
+        // ✅ SALES ROUTES - SHARED (ADMIN & KASIR)
+        Route::get('/sales/next-transaction-code', [SaleController::class, 'getNextTransactionCode']);
+        Route::get('/sales', [SaleController::class, 'index']);
+        Route::post('/sales', [SaleController::class, 'store']);
+        Route::get('/sales/{id}', [SaleController::class, 'show']);
+
+        // ✅ SALES STATISTICS & REPORTS
+        Route::get('/sales/stats/discount', [SaleController::class, 'discountStats']);
+
+        // ✅ LEGACY COMPATIBILITY
         Route::get('/sales/discount-stats', [SaleController::class, 'discountStats']);
 
-        // ✅ TRANSACTION LEGACY ROUTES (untuk backward compatibility)
+        // ✅ TRANSACTION LEGACY ROUTES
         Route::post('/transaksi', function (Request $request) {
             return response()->json([
                 'success' => true,
-                'message' => 'Transaksi created successfully',
+                'message' => 'Transaksi created successfully (legacy endpoint, gunakan /sales)',
                 'data' => $request->all()
             ]);
         });
@@ -113,7 +130,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/transaksi/history', function (Request $request) {
             return response()->json([
                 'success' => true,
-                'message' => 'Transaksi history',
+                'message' => 'Transaksi history (legacy endpoint, gunakan /sales)',
                 'data' => []
             ]);
         });

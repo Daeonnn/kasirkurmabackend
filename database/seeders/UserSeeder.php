@@ -15,19 +15,19 @@ class UserSeeder extends Seeder
 
         // Buat user admin
         User::create([
-            'name' => 'Admin',
-            'username' => 'admin',
+            'name' => 'Yose Reza',
+            'username' => 'yose',
             'email' => 'admin@gmail.com',
-            'password' => Hash::make('123'),
+            'password' => Hash::make('adminkurma123'),
             'role_id' => 1,
         ]);
 
         // Buat user kasir
         User::create([
-            'name' => 'Kasir',
-            'username' => 'kasir',
+            'name' => 'Elanda',
+            'username' => 'elanda',
             'email' => 'kasir@gmail.com',
-            'password' => Hash::make('123'),
+            'password' => Hash::make('kasirkurma123'),
             'role_id' => 2,
         ]);
     }

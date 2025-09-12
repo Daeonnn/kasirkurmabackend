@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Jenis;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class JenisController extends Controller
 {
@@ -155,13 +157,15 @@ class JenisController extends Controller
                 ], 404);
             }
 
+            // Cek apakah jenis masih digunakan di tabel products
             if ($jenis->products()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Tidak dapat menghapus jenis yang masih memiliki produk'
+                    'message' => 'Tidak dapat dihapus karena jenis telah digunakan'
                 ], 400);
             }
 
+            // Hard delete
             $jenis->delete();
 
             return response()->json([

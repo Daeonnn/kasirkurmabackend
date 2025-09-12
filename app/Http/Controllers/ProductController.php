@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -166,6 +167,18 @@ class ProductController extends Controller
                 'selling_price' => $request->selling_price
             ]);
 
+            // Jika ada stok awal, buat movement record
+            if ($request->stock > 0) {
+                StockMovement::create([
+                    'product_id' => $product->id,
+                    'type' => 'in',
+                    'quantity' => $request->stock,
+                    'distributor_id' => $request->distributor_id,
+                    'notes' => 'Stok awal produk',
+                    'user_id' => Auth::id()
+                ]);
+            }
+
             $product->load(['jenis', 'distributor', 'satuan']);
 
             if ($product->photo) {
@@ -177,8 +190,7 @@ class ProductController extends Controller
             Log::info('Product created successfully', [
                 'product_id' => $product->id,
                 'product_name' => $product->name,
-                'photo_path' => $product->photo,
-                'photo_url' => $product->photo_url,
+                'initial_stock' => $request->stock,
                 'created_by' => $this->getUserId()
             ]);
 
@@ -271,13 +283,13 @@ class ProductController extends Controller
             'photo_size' => $request->hasFile('photo') ? $request->file('photo')->getSize() : 0
         ]);
 
+        // UPDATED VALIDATION: Hapus 'stock' dari rules
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'jenis_id' => 'required|exists:jenis,id',
             'satuan_id' => 'required|exists:satuan,id',
             'distributor_id' => 'required|exists:distributors,id',
-            'stock' => 'required|integer|min:0',
             'selling_price' => 'required|numeric|min:0',
         ], [
             'name.required' => 'Nama produk harus diisi',
@@ -290,21 +302,12 @@ class ProductController extends Controller
             'satuan_id.exists' => 'Satuan yang dipilih tidak valid',
             'distributor_id.required' => 'Distributor harus dipilih',
             'distributor_id.exists' => 'Distributor yang dipilih tidak valid',
-            'stock.required' => 'Stok harus diisi',
-            'stock.integer' => 'Stok harus berupa angka',
-            'stock.min' => 'Stok tidak boleh kurang dari 0',
             'selling_price.required' => 'Harga jual harus diisi',
             'selling_price.numeric' => 'Harga jual harus berupa angka',
             'selling_price.min' => 'Harga jual tidak boleh kurang dari 0',
         ]);
 
         if ($validator->fails()) {
-            Log::error('Validation failed for product update', [
-                'product_id' => $id,
-                'errors' => $validator->errors(),
-                'request_data' => $request->except(['photo'])
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Data tidak valid',
@@ -324,18 +327,16 @@ class ProductController extends Controller
                 ], 404);
             }
 
-            $oldStock = $product->stock;
             $oldPhoto = $product->photo;
-
             $photoPath = $this->handlePhotoUpload($request, $oldPhoto);
 
+            // UPDATED: Hapus 'stock' dari update array
             $product->update([
                 'name' => $request->name,
                 'photo' => $photoPath,
                 'jenis_id' => $request->jenis_id,
                 'satuan_id' => $request->satuan_id,
                 'distributor_id' => $request->distributor_id,
-                'stock' => $request->stock,
                 'selling_price' => $request->selling_price
             ]);
 
@@ -347,21 +348,8 @@ class ProductController extends Controller
                 $product->photo_url = null;
             }
 
-            if ($oldStock != $request->stock) {
-                Log::info('Product stock updated via edit', [
-                    'product_id' => $product->id,
-                    'product_name' => $product->name,
-                    'old_stock' => $oldStock,
-                    'new_stock' => $request->stock,
-                    'difference' => $request->stock - $oldStock,
-                    'updated_by' => $this->getUserId()
-                ]);
-            }
-
             Log::info('Product updated successfully', [
                 'product_id' => $product->id,
-                'photo_path' => $product->photo,
-                'photo_url' => $product->photo_url,
                 'updated_by' => $this->getUserId()
             ]);
 
@@ -403,10 +391,7 @@ class ProductController extends Controller
 
             $productName = $product->name;
 
-            if ($product->photo && Storage::disk('public')->exists($product->photo)) {
-                Storage::disk('public')->delete($product->photo);
-            }
-
+            // Hard delete dengan protection di model boot method
             $product->delete();
 
             Log::info('Product deleted', [
@@ -427,12 +412,121 @@ class ProductController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal menghapus produk',
+                'message' => 'Gagal menghapus produk: ' . $e->getMessage(),
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
+    // NEW METHOD: Tambah stok dengan tracking
+    public function addStockWithTracking(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'quantity' => 'required|integer|min:1',
+            'distributor_id' => 'required|exists:distributors,id',
+            'notes' => 'nullable|string|max:255'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak valid',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $product = Product::find($id);
+
+            if (!$product) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Produk tidak ditemukan'
+                ], 404);
+            }
+
+            $movement = $product->addStock(
+                $request->quantity,
+                $request->distributor_id,
+                $request->notes
+            );
+
+            $product->load(['jenis', 'distributor', 'satuan']);
+
+            if ($product->photo) {
+                $product->photo_url = asset('storage/' . $product->photo);
+            } else {
+                $product->photo_url = null;
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'product' => $product,
+                    'movement' => $movement->load(['distributor', 'user'])
+                ],
+                'message' => "Stok berhasil ditambah +{$request->quantity}"
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error adding stock with tracking', [
+                'product_id' => $id,
+                'error' => $e->getMessage(),
+                'user_id' => $this->getUserId()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menambah stok',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // NEW METHOD: Get stock history for specific product
+    public function getStockHistory($id, Request $request)
+    {
+        try {
+            $product = Product::with(['jenis', 'satuan', 'distributor'])->findOrFail($id);
+
+            $query = $product->stockMovements()
+                           ->with(['distributor', 'user'])
+                           ->orderBy('created_at', 'desc');
+
+            // Filter tanggal jika ada
+            if ($request->has('start_date') && $request->has('end_date')) {
+                $query->whereBetween('created_at', [
+                    $request->start_date . ' 00:00:00',
+                    $request->end_date . ' 23:59:59'
+                ]);
+            }
+
+            $movements = $query->paginate($request->get('per_page', 10));
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'product' => $product,
+                    'movements' => $movements
+                ],
+                'message' => 'Riwayat stok berhasil diambil'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching stock history', [
+                'product_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error mengambil riwayat stok',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ✅ FIXED: Legacy method untuk compatibility dengan sistem lama
     public function simpleAddStock(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
@@ -461,10 +555,13 @@ class ProductController extends Controller
 
             $oldStock = $product->stock;
             $additionalStock = $request->additional_stock;
-            $newStock = $oldStock + $additionalStock;
 
-            $product->stock = $newStock;
-            $product->save();
+            // ✅ FIXED: Use new method dengan default distributor dan notes yang benar
+            $movement = $product->addStock(
+                $additionalStock,
+                $product->distributor_id, // Use product's default distributor
+                'Penambahan stok via sistem lama'
+            );
 
             $product->load(['jenis', 'distributor', 'satuan']);
 
@@ -474,14 +571,13 @@ class ProductController extends Controller
                 $product->photo_url = null;
             }
 
-            Log::info('Stock added via frontend', [
+            Log::info('Stock added via legacy method', [
                 'product_id' => $product->id,
                 'product_name' => $product->name,
                 'old_stock' => $oldStock,
                 'added_stock' => $additionalStock,
-                'new_stock' => $newStock,
-                'updated_by' => $this->getUserId(),
-                'timestamp' => now()
+                'new_stock' => $product->stock,
+                'updated_by' => $this->getUserId()
             ]);
 
             DB::commit();
@@ -495,11 +591,10 @@ class ProductController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            Log::error('Error adding stock', [
+            Log::error('Error adding stock via legacy method', [
                 'product_id' => $id,
                 'error' => $e->getMessage(),
-                'user_id' => $this->getUserId(),
-                'trace' => $e->getTraceAsString()
+                'user_id' => $this->getUserId()
             ]);
 
             return response()->json([

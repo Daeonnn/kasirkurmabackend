@@ -14,7 +14,6 @@ return new class extends Migration
             $table->string('phone');
             $table->text('address');
             $table->timestamps();
-            $table->softDeletes();
         });
     }
 

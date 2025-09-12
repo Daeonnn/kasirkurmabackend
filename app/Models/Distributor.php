@@ -4,11 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Distributor extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory;
+   
 
     protected $fillable = [
         'name',
@@ -18,6 +18,6 @@ class Distributor extends Model
 
     public function products()
     {
-        return $this->hasMany(Product::class);
+        return $this->hasMany(Product::class, 'distributor_id');
     }
 }
