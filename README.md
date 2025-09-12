@@ -90,6 +90,3 @@ php artisan storage:link
 
 # Jalankan Server
 php artisan serve
-
-
-konvigu
